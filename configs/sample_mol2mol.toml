@@ -1,0 +1,13 @@
+run_type = "sampling"
+device = "cpu"
+tb_logdir = "tb_sampling"
+
+[parameters]
+model_file = "/workspace/models/tl_mol2mol.model"      # your TL output (or an epoch-16/18 .chkpt)
+smiles_file = "/workspace/configs/compounds.smi"        # SEEDS: the 17 molecules you want analogs OF
+output_file = "/workspace/results/sampled.csv"
+sample_strategy = "multinomial"              # diverse pool; "beamsearch" = deterministic top analogs
+temperature = 1.0                            # multinomial only; ↑ = more diverse, ↓ = more conservative
+num_smiles = 1000                            # total molecules to generate (tune up for a bigger pool)
+unique_molecules = true                      # dedupe + canonicalize
+randomize_smiles = true

@@ -1,50 +1,50 @@
-services:
-  reinvent:
-    build:
-      context: .
-      # For a GPU machine, build the CUDA torch wheel instead of CPU:
-      # args:
-      #   TORCH_INDEX: https://download.pytorch.org/whl/cu126
-    image: htvs-pipeline:latest
-    container_name: reinvent4
-    working_dir: /workspace
+x-reinvent-base: &reinvent-base
+  build:
+    context: .
+  image: htvs-pipeline:latest
+  working_dir: /workspace
+  volumes:
+    - .:/workspace
+  environment:
+    PYTHONUNBUFFERED: "1"
+  restart: "no"
+  stop_grace_period: 180s
+  stop_signal: SIGTERM
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "5"
 
-    # The wrapper IS the job. It resumes from the checkpoint on every start.
+services:
+  tl:
+    <<: *reinvent-base
+    container_name: reinvent4-tl
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
               "-l", "tl.log", "configs/tl_mol2mol.toml"]
-    # Persist configs, scripts, results, checkpoints to the host.
-    # Adjust the left-hand path to wherever your workspace lives on the host.
-    volumes:
-      - .:/workspace
 
-    environment:
-      #TARGET_STEPS: "500"      # total RL steps
-      #CHUNK_STEPS: "1"        # steps per checkpointed chunk
-      PYTHONUNBUFFERED: "1"
+  sample:
+    <<: *reinvent-base
+    container_name: reinvent4-sample
+    command: ["/opt/conda/envs/reinvent4/bin/reinvent",
+              "-l", "sampling.log", "configs/sample_mol2mol.toml"]
 
-    # unless-stopped = also restarts after a host reboot; wrapper idles on
-    # completion so a clean finish won't loop.
-    restart: "no"
+  dock:
+    <<: *reinvent-base
+    container_name: reinvent4-dock
+    # PATH A — virtual screen of results/sampled.csv against your receptor.
+    # Placeholder: point this at your real docking command. Since your image
+    # is htvs-pipeline, the engine is probably already inside (check with the
+    # `which` command above). This script does: SMILES -> 3D -> dock -> scores.
+    command: ["bash", "/workspace/scripts/dock.sh"]
 
-    # Give SIGTERM time to let REINVENT write its checkpoint before SIGKILL.
-    stop_grace_period: 180s
-    stop_signal: SIGTERM
+  # PATH B (GPU/cluster only — heavy on CPU): closed-loop RL with docking.
+  # rl:
+  #   <<: *reinvent-base
+  #   container_name: reinvent4-rl
+  #   command: ["/opt/conda/envs/reinvent4/bin/reinvent",
+  #             "-l", "rl.log", "configs/staged_learning.toml"]
 
-    # Cap log growth on long runs.
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "5"
-
-    # ---- GPU machines only: uncomment, and build with the cu126 arg above ----
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
   tensorboard:
     image: htvs-pipeline:latest
     container_name: reinvent-tb
