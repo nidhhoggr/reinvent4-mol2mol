@@ -10,21 +10,21 @@ services:
     working_dir: /workspace
 
     # The wrapper IS the job. It resumes from the checkpoint on every start.
-    command: ["bash", "/workspace/scripts/run_resilient.sh"]
-
+    command: ["/opt/conda/envs/reinvent4/bin/reinvent",
+              "-l", "tl.log", "configs/tl_mol2mol.toml"]
     # Persist configs, scripts, results, checkpoints to the host.
     # Adjust the left-hand path to wherever your workspace lives on the host.
     volumes:
       - .:/workspace
 
     environment:
-      TARGET_STEPS: "500"      # total RL steps
-      CHUNK_STEPS: "1"        # steps per checkpointed chunk
+      #TARGET_STEPS: "500"      # total RL steps
+      #CHUNK_STEPS: "1"        # steps per checkpointed chunk
       PYTHONUNBUFFERED: "1"
 
     # unless-stopped = also restarts after a host reboot; wrapper idles on
     # completion so a clean finish won't loop.
-    restart: unless-stopped
+    restart: "no"
 
     # Give SIGTERM time to let REINVENT write its checkpoint before SIGKILL.
     stop_grace_period: 180s
@@ -48,8 +48,9 @@ services:
   tensorboard:
     image: htvs-pipeline:latest
     container_name: reinvent-tb
+    working_dir: /workspace
     command: ["/opt/conda/envs/reinvent4/bin/tensorboard",
-              "--logdir", "/workspace/tb_libinvent_0",
+              "--logdir", "/workspace/tb_TL",
               "--host", "0.0.0.0", "--port", "6006"]
     volumes:
       - ${PWD}:/workspace:ro

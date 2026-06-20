@@ -1,0 +1,19 @@
+run_type = "transfer_learning"
+device = "cpu"
+tb_logdir = "tb_TL"
+
+[parameters]
+input_model_file = "/workspace/configs/priors/mol2mol_medium_similarity.prior"  # point at the prior in your image
+smiles_file = "/workspace/configs/compounds_augmented_train.smi"
+validation_smiles_file = "/workspace/configs/compounds_augmented_val.smi"
+output_model_file = "/workspace/models/tl_mol2mol.model"
+
+num_epochs = 25            # small set overfits fast; watch the curve, take an early checkpoint
+save_every_n_epochs = 2    # frequent, so you can pick the best epoch rather than the last
+batch_size = 64            # lower toward 16-32 if check_pairs showed only a couple hundred pairs
+
+pairs.type = "tanimoto"
+pairs.lower_threshold = 0.5   # SET THIS from check_pairs.py output
+pairs.upper_threshold = 1.0
+pairs.min_cardinality = 1     # keep every source with >=1 valid target
+pairs.max_cardinality = 199   # irrelevant at this size; harmless to leave
