@@ -13,7 +13,7 @@ configs/priors/*
 docking_setup/
 configs/compounds*.smi
 models/
-scripts/tl/
 tb_TL/
+tb_sampling/
 tl.log
 sampling.log
