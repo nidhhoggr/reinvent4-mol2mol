@@ -1,0 +1,58 @@
+services:
+  reinvent:
+    build:
+      context: .
+      # For a GPU machine, build the CUDA torch wheel instead of CPU:
+      # args:
+      #   TORCH_INDEX: https://download.pytorch.org/whl/cu126
+    image: htvs-pipeline:latest
+    container_name: reinvent4
+    working_dir: /workspace
+
+    # The wrapper IS the job. It resumes from the checkpoint on every start.
+    command: ["bash", "/workspace/scripts/run_resilient.sh"]
+
+    # Persist configs, scripts, results, checkpoints to the host.
+    # Adjust the left-hand path to wherever your workspace lives on the host.
+    volumes:
+      - .:/workspace
+
+    environment:
+      TARGET_STEPS: "500"      # total RL steps
+      CHUNK_STEPS: "1"        # steps per checkpointed chunk
+      PYTHONUNBUFFERED: "1"
+
+    # unless-stopped = also restarts after a host reboot; wrapper idles on
+    # completion so a clean finish won't loop.
+    restart: unless-stopped
+
+    # Give SIGTERM time to let REINVENT write its checkpoint before SIGKILL.
+    stop_grace_period: 180s
+    stop_signal: SIGTERM
+
+    # Cap log growth on long runs.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    # ---- GPU machines only: uncomment, and build with the cu126 arg above ----
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+  tensorboard:
+    image: htvs-pipeline:latest
+    container_name: reinvent-tb
+    command: ["/opt/conda/envs/reinvent4/bin/tensorboard",
+              "--logdir", "/workspace/tb_libinvent_0",
+              "--host", "0.0.0.0", "--port", "6006"]
+    volumes:
+      - ${PWD}:/workspace:ro
+    ports:
+      - "6006:6006"
+    restart: unless-stopped

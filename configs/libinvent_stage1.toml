@@ -1,0 +1,117 @@
+# =============================================================================
+# REINVENT4 LibInvent — CURRICULUM STAGE 1 of 2  (chemistry shaping, NO docking)
+# -----------------------------------------------------------------------------
+# Purpose: cheaply push the agent into the chemistry you want — aromatic-free,
+# compact, halogen-bearing, drug-like — BEFORE spending any docking time.
+# Every component here is a fast RDKit calc, so a step takes seconds, not 30 min.
+#
+# Run this DIRECTLY (not through the resilient wrapper — it's fast enough that a
+# reboot costs you minutes, and the wrapper only templates one stage anyway):
+#
+#   docker run --rm -v "$PWD:/workspace" htvs-pipeline:latest bash -lc \
+#     'source /opt/conda/etc/profile.d/conda.sh && conda activate reinvent4 && \
+#      python -m reinvent /workspace/configs/libinvent_stage1.toml'
+#
+# When it finishes it writes /workspace/results/libinvent_stage1.chkpt — that
+# shaped agent is the warm start for stage 2.
+# =============================================================================
+
+run_type  = "staged_learning"
+device    = "cpu"
+tb_logdir = "tb_libinvent_stage1"
+
+[parameters]
+prior_file  = "/workspace/configs/priors/libinvent.prior"
+agent_file  = "/workspace/configs/priors/libinvent.prior"   # start from the prior
+smiles_file = "/workspace/configs/scaffolds.smi"
+summary_csv_prefix = "/workspace/results/libinvent_stage1_run"
+batch_size         = 128
+randomize_smiles   = true
+temperature        = 0.75
+
+[learning_strategy]
+type  = "dap"
+sigma = 128
+rate  = 0.0001
+
+[diversity_filter]
+type        = "IdenticalMurckoScaffold"
+bucket_size = 25
+minscore    = 0.4
+
+[[stage]]
+chkpt_file  = "/workspace/results/libinvent_stage1.chkpt"
+termination = "simple"
+max_score   = 0.6      # advance when the shaped chemistry is consistently good
+min_steps   = 30
+max_steps   = 200      # cheap steps, so a high ceiling is fine
+
+[stage.scoring]
+type = "geometric_mean"
+
+# ---- FILTER: ban aromatic rings (runs BEFORE scorers; masks them out) --------
+# Because CustomAlerts is a filter, aromatic molecules are dropped before any
+# expensive component — here it just zeroes them cheaply and teaches the agent
+# to stop emitting them. "[a]" = any aromatic atom; switch to ["c1ccccc1"] if
+# you want to allow heteroaromatics (pyridine etc.) and ban only benzene.
+[[stage.scoring.component]]
+[stage.scoring.component.CustomAlerts]
+[[stage.scoring.component.CustomAlerts.endpoint]]
+name = "no_aromatic"
+params.smarts = ["[a]"]
+
+# ---- QED: overall drug-likeness (primary shaper) -----------------------------
+[[stage.scoring.component]]
+[stage.scoring.component.QED]
+[[stage.scoring.component.QED.endpoint]]
+name   = "QED"
+weight = 1.0
+
+# ---- SAScore: synthesizability (1 easy .. 10 hard -> lower is better) ---------
+[[stage.scoring.component]]
+[stage.scoring.component.SAScore]
+[[stage.scoring.component.SAScore.endpoint]]
+name   = "SAScore"
+weight = 0.5
+transform.type = "reverse_sigmoid"
+transform.low  = 2.0
+transform.high = 6.0
+transform.k    = 0.5
+
+# ---- MolecularWeight: a 250-500 Da WINDOW (floor + ceiling) ------------------
+# double_sigmoid penalizes both too-small and too-big; one component handles size.
+[[stage.scoring.component]]
+[stage.scoring.component.MolecularWeight]
+[[stage.scoring.component.MolecularWeight.endpoint]]
+name   = "MW"
+weight = 0.5
+transform.type = "double_sigmoid"
+transform.low  = 150.0
+transform.high = 500.0
+transform.coef_div = 500.0
+transform.coef_si  = 20.0
+transform.coef_se  = 20.0
+
+# ---- GraphLength: compactness (shorter longest-path -> better) ----------------
+# Paired with the MW window, this is what makes decorations bushy, not stringy.
+[[stage.scoring.component]]
+[stage.scoring.component.GraphLength]
+[[stage.scoring.component.GraphLength.endpoint]]
+name   = "GraphLength"
+weight = 0.5
+transform.type = "reverse_sigmoid"
+transform.low  = 9.0
+transform.high = 14.5
+transform.k    = 0.5
+
+# ---- Halogens: PREFER 1-2 halogens (a preference, low weight) -----------------
+[[stage.scoring.component]]
+[stage.scoring.component.GroupCount]
+[[stage.scoring.component.GroupCount.endpoint]]
+name   = "Halogens"
+weight = 0.3
+params.smarts  = "[F,Cl,Br,I]"
+transform.type = "sigmoid"
+transform.low  = 0.0
+transform.high = 2.0
+transform.k    = 0.5

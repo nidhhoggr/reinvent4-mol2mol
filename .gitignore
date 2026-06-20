@@ -1,0 +1,13 @@
+tags
+.DS_Store
+Thumbs.db
+.vscode
+build/
+dist/
+*.egg-info/
+__pycache__/
+
+results/
+tb_libinvent_*/
+configs/priors/*
+docking_setup/receptor.pdbqt
