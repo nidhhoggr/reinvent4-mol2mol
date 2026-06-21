@@ -1,6 +1,4 @@
 x-reinvent-base: &reinvent-base
-  build:
-    context: .
   image: htvs-pipeline:latest
   working_dir: /workspace
   volumes:
@@ -17,37 +15,53 @@ x-reinvent-base: &reinvent-base
       max-file: "5"
 
 services:
+  builder:
+    build:
+      context: .
+    image: htvs-pipeline:latest
+    entrypoint: ["echo", "Schema builder service"]
+
   tl:
     <<: *reinvent-base
     container_name: reinvent4-tl
+    depends_on:
+      - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
               "-l", "tl.log", "configs/tl_mol2mol.toml"]
 
   sample:
     <<: *reinvent-base
     container_name: reinvent4-sample
+    depends_on:
+      - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
               "-l", "sampling.log", "configs/sample_mol2mol.toml"]
 
   dock:
     <<: *reinvent-base
     container_name: reinvent4-dock
-    # PATH A — virtual screen of results/sampled.csv against your receptor.
+    depends_on:
+      - builder
+    # PATH A virtual screen of results/sampled.csv against your receptor.
     # Placeholder: point this at your real docking command. Since your image
     # is htvs-pipeline, the engine is probably already inside (check with the
     # `which` command above). This script does: SMILES -> 3D -> dock -> scores.
     command: ["bash", "/workspace/scripts/dock.sh"]
 
-  # PATH B (GPU/cluster only — heavy on CPU): closed-loop RL with docking.
+  # PATH B (GPU/cluster only heavy on CPU): closed-loop RL with docking.
   # rl:
   #   <<: *reinvent-base
-  #   container_name: reinvent4-rl
+  #   container_name: reinvent4-dock
+  #   depends_on:
+  #     - builder
   #   command: ["/opt/conda/envs/reinvent4/bin/reinvent",
   #             "-l", "rl.log", "configs/staged_learning.toml"]
 
-  tensorboard:
-    image: htvs-pipeline:latest
+  tensorboard:   
+    <<: *reinvent-base
     container_name: reinvent-tb
+    depends_on:
+      - builder
     working_dir: /workspace
     command: ["/opt/conda/envs/reinvent4/bin/tensorboard",
               "--logdir", "/workspace/tb_TL",
