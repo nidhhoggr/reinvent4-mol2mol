@@ -15,6 +15,13 @@ Run it with a Python that has RDKit (e.g. the DockStream or reinvent4 conda env)
 and point --obabel / --vina at the SAME binaries the container used, or the
 scores will not match your run (version differences shift atom typing / search).
 
+Parallelism note:
+  Each individual docking stays pinned to --cpu 1 / --seed 42 so it is
+  bit-for-bit reproducible against your DockStream run. To use multiple cores,
+  parallelize ACROSS ligands in the --csv path with --workers N (one ligand per
+  core). Do NOT raise --cpu instead: Vina's multithreaded search is not
+  reproducible across thread counts even with a fixed seed.
+
 Single molecule:
   python vina_redock.py "CCO..." \
     --receptor /workspace/docking_setup/receptor.pdbqt \
@@ -23,14 +30,16 @@ Single molecule:
     --obabel /opt/conda/envs/DockStream/bin/obabel \
     --out /workspace/results/redock
 
-Batch from a CSV (uses the SMILES column):
-  python vina_redock.py --csv /workspace/results/combined.csv --smiles-col SMILES ...
+Batch from a CSV (uses the SMILES column), 10 ligands at a time:
+  python vina_redock.py --csv /workspace/results/combined.csv --smiles-col SMILES \
+    --workers 10 ...
 """
 import argparse
 import csv
 import os
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -68,7 +77,12 @@ def to_pdbqt(mol: Chem.Mol, obabel: str, workdir: str) -> str:
 
 def dock(pdbqt: str, receptor: str, center, size, vina: str,
          out_pdbqt: str, exhaustiveness: int) -> float:
-    """Run Vina deterministically and return the best (mode 1) affinity."""
+    """Run Vina deterministically and return the best (mode 1) affinity.
+
+    --cpu is intentionally 1: this keeps the search single-threaded and therefore
+    reproducible against the DockStream run. Parallelism comes from running many
+    of these at once (see --workers), not from threading a single dock.
+    """
     cx, cy, cz = center
     sx, sy, sz = size
     cmd = [
@@ -114,6 +128,9 @@ def main():
                    metavar=("X", "Y", "Z"), help="search box size (default 22 22 22)")
     p.add_argument("--exhaustiveness", type=int, default=8,
                    help="MATCH your dockstream_config.json value (Vina default 8)")
+    p.add_argument("--workers", type=int, default=1,
+                   help="parallel dockings at once for --csv (each still uses --cpu 1). "
+                        "Set to your core count, e.g. 10. No effect on single-SMILES mode.")
     p.add_argument("--vina", default="vina", help="path to AutoDock Vina 1.1.2 binary")
     p.add_argument("--obabel", default="obabel", help="path to obabel binary")
     p.add_argument("--out", default="./redock", help="output directory")
@@ -127,14 +144,28 @@ def main():
             if args.smiles_col not in reader.fieldnames:
                 sys.exit(f"Column '{args.smiles_col}' not in CSV. "
                          f"Found: {reader.fieldnames}")
-            for i, row in enumerate(reader):
-                smi = row[args.smiles_col]
-                name = f"mol_{i:04d}"
+            jobs = [(row[args.smiles_col], f"mol_{i:04d}")
+                    for i, row in enumerate(reader)]
+
+        results = []
+        with ProcessPoolExecutor(max_workers=max(1, args.workers)) as pool:
+            futs = {pool.submit(run_one, smi, name, args, args.out): (smi, name)
+                    for smi, name in jobs}
+            for fut in as_completed(futs):
+                smi, name = futs[fut]
                 try:
-                    score, pose = run_one(smi, name, args, args.out)
-                    print(f"{score:8.2f}  {name}  {smi}")
+                    score, pose = fut.result()
+                    results.append((name, score, smi))
+                    print(f"{score:8.2f}  {name}  {smi}", flush=True)
                 except Exception as e:
-                    print(f"   FAIL  {name}  {smi}  -> {e}")
+                    print(f"   FAIL  {name}  {smi}  -> {e}", flush=True)
+
+        # Re-emit a stable, input-ordered summary (as_completed prints in finish
+        # order). Comment this block out if you don't want the second pass.
+        if results:
+            print("\n# ---- sorted by molecule index ----", flush=True)
+            for name, score, smi in sorted(results, key=lambda r: r[0]):
+                print(f"{score:8.2f}  {name}  {smi}", flush=True)
     else:
         if not args.smiles:
             sys.exit("Provide a SMILES string or --csv")
