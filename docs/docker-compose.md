@@ -1,9 +1,10 @@
-Yeah — interactive `docker run -it` plus a hand-typed `python` is the fragile part: if your SSH session drops the job can die, there's no restart, and the logs live only in your terminal. For a long single-machine job the clean setup is: run it **detached**, let the **wrapper be the container's command**, persist everything to a **mounted volume**, and manage the lifecycle declaratively. Docker Compose is the tidiest way to capture all of that.
-
-One fix first — the wrapper currently calls `conda run -n reinvent4`, which buffers output and would make `docker logs -f` look dead. Let me switch it to activate the env directly so logs stream live and it works non-interactively.Now the Compose file that runs it detached with the right restart, stop-grace, and log settings:The lifecycle then becomes clean and disconnect-proof:
-
 ```bash
-docker compose up -d --build     # build + start detached; survives SSH drop
+docker compose build     # build + start detached; survives SSH drop
+# GPU — override passes cu126 at build AND reserves the device at run
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml build
+# GPU - specify a custom torch index
+TORCH_INDEX=https://download.pytorch.org/whl/cu130 \
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml build
 docker compose logs -f           # live logs (streams now that conda run is gone)
 docker compose stop              # graceful: SIGTERM -> checkpoint, waits up to 180s
 docker compose up -d             # resume — wrapper picks up from the checkpoint

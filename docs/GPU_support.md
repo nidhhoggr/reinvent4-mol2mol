@@ -1,26 +1,60 @@
-The good news is that the fix is small and *doesn't* involve wrangling CUDA dependencies, because the CUDA libraries are bundled inside the torch wheel. So a properly built GPU image needs **no CUDA toolkit in the image and no CUDA install on the host** — the host just needs an NVIDIA driver plus the NVIDIA Container Toolkit (standard for any GPU + Docker setup), and you run with `--gpus all`.
+## Docker
 
-This is portable by parameterizing the torch index with a build arg, so the *same* Dockerfile builds CPU or GPU without editing it. Here's that version:So on the new machine, the full GPU path is:
+```yaml
+# docker-compose.gpu.yml
+services:
+  builder:
+    build:
+      args:
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cu126}
 
-```bash
-# build the GPU image (one flag difference)
-docker build -t reinvent4-gpu --build-arg TORCH_INDEX=https://download.pytorch.org/whl/cu126 .
-
-# host needs the NVIDIA Container Toolkit once (not a per-project dependency):
-#   sudo apt-get install -y nvidia-container-toolkit && sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
-
-# run with the GPU exposed
-docker run --gpus all -it -v /path/to/workspace:/workspace reinvent4-gpu
+  tl:    &gpu { deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } } }
+  sample: *gpu
+  rl:     *gpu
 ```
 
-Then inside, two checks and one config change:
-```bash
-nvidia-smi                                                  # GPU visible?
-python -c "import torch; print(torch.cuda.is_available())"  # expect True
-```
-and set `device = "cuda:0"` in `libinvent_rl.toml`.
+One real gotcha with putting build args **only** in the override file: in CPU mode that file isn't loaded, so `builder.build.args` is absent entirely — which is fine, because your **Dockerfile** still has `ARG TORCH_INDEX=…/cpu` as the fallback. So the resolution chain is:
 
-Why this avoids the dependency-wrangling you're worried about: the cu126 torch wheel ships its own CUDA runtime, so you never install a CUDA toolkit in the image or on the host — the only host-side piece is the driver + container toolkit, which is the standard cost of running any GPU container. And a "more recent" machine sidesteps the exact thing that bit you before: the GTX 970 was Maxwell (sm_52), which modern torch dropped; any current card (RTX 20-series / T4 and newer) is supported, so it'll just work.
+- **CPU run** (`docker compose up`): GPU file not loaded → no build arg passed → Dockerfile `ARG` default (`/cpu`) wins. ✓
+- **GPU run** (`-f … -f docker-compose.gpu.yml`): override supplies `cu126` → Dockerfile `ARG` overridden. ✓
+
+The thing to *not* do is split it: TORCH_INDEX default in the base `builder` and the GPU override in the gpu file. That works but now two files describe the same arg and you have to reason about precedence. Pick one home for it.
+
+``bash
+# CPU — gpu file not loaded, Dockerfile ARG default (/cpu) wins
+docker compose up tl
+
+# GPU — override passes cu126 at build AND reserves the device at run
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml build tl
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up tl
+
+# The env var feeds the ${TORCH_INDEX} substitution in the YAML, overriding the cu126 default. No --build-arg needed at all. And because it's the same TORCH_INDEX variable, you can drop it in your root .env and forget about it.
+TORCH_INDEX=https://download.pytorch.org/whl/cu130 \
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml build
+```
+
+Compose deep-merges the two, so the GPU file only contributes the device reservation. The base file is byte-for-byte identical between the two modes.
+
+If typing `-f … -f …` every time annoys you and you want it **env-driven** (closer to what you're after), use the special `.env` file's `COMPOSE_FILE` variable:
+
+```
+# .env  (project root)
+COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+TORCH_INDEX=https://download.pytorch.org/whl/cu130
+```
+Now a plain `docker compose up` picks up both. Flip to CPU by commenting that line out or setting `COMPOSE_FILE=docker-compose.yml`.
+
+The one catch to keep straight: that `.env` is the special file Compose auto-reads for `${VAR}` substitution and settings like `COMPOSE_FILE` — it is **not** your `host.env`. `host.env` stays doing its job (runtime `OMP_NUM_THREADS` etc. inside the container); `.env` drives Compose's own behavior. They're two different mechanisms that happen to both involve env-style files.
+
+This also pairs cleanly with the build-arg side from before — you can put `TORCH_INDEX` in that same `.env` so one file selects both the CUDA wheel at build and the GPU reservation at run.
+
+## TOML
+
+Finally, set `device = "cuda:0"` in each config (`tl_mol2mol.toml`, `sample_mol2mol.toml`, `staged_learning.toml`). With a CPU build this line errors or silently falls back, so it's the last switch to flip.
+
+---
+
+One unrelated flag while you're in there: `torch==2.12.0` is a very high pin — worth confirming it actually resolves on `cu126` before you commit to a long GPU build, since a nonexistent version will fail Layer 3 regardless of the index. If you want, I can check what the current stable torch is and which CUDA wheel indexes it ships for.
 
 Two honest caveats so the new machine doesn't disappoint you:
 

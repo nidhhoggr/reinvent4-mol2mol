@@ -3,6 +3,8 @@ x-reinvent-base: &reinvent-base
   working_dir: /workspace
   volumes:
     - .:/workspace
+  env_file:
+    - host.env
   environment:
     PYTHONUNBUFFERED: "1"
   restart: "no"
@@ -42,20 +44,15 @@ services:
     container_name: reinvent4-dock
     depends_on:
       - builder
-    # PATH A virtual screen of results/sampled.csv against your receptor.
-    # Placeholder: point this at your real docking command. Since your image
-    # is htvs-pipeline, the engine is probably already inside (check with the
-    # `which` command above). This script does: SMILES -> 3D -> dock -> scores.
     command: ["bash", "/workspace/scripts/dock.sh"]
 
-  # PATH B (GPU/cluster only heavy on CPU): closed-loop RL with docking.
-  # rl:
-  #   <<: *reinvent-base
-  #   container_name: reinvent4-dock
-  #   depends_on:
-  #     - builder
-  #   command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-  #             "-l", "rl.log", "configs/staged_learning.toml"]
+  rl:
+    <<: *reinvent-base
+    container_name: reinvent4-dock
+    depends_on:
+      - builder
+    command: ["/opt/conda/envs/reinvent4/bin/reinvent",
+              "-l", "rl.log", "configs/staged_learning.toml"]
 
   tensorboard:   
     <<: *reinvent-base

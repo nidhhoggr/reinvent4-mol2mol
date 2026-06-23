@@ -1,0 +1,9 @@
+services:
+  builder:
+    build:
+      args:
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cu126}
+
+  tl:    &gpu { deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } } }
+  sample: *gpu
+  rl:     *gpu

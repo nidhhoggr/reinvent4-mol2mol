@@ -17,3 +17,4 @@ models/
 tb_TL/
 tb_sampling/
 *.log
+host.env
