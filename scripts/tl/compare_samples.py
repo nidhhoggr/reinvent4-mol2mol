@@ -52,6 +52,8 @@ def main():
     ap.add_argument("file_a"); ap.add_argument("file_b")
     ap.add_argument("--smiles-col")
     ap.add_argument("-o","--output", help="write the shared (duplicate) molecules here")
+    ap.add_argument("--only-a", help="write molecules unique to file_a here")
+    ap.add_argument("--only-b", help="write molecules unique to file_b here")
     args = ap.parse_args()
 
     A = load(args.file_a, args.smiles_col)
@@ -79,11 +81,18 @@ def main():
           f"shared {len(sshared)} ({100*len(sshared)/len(sa|sb):.1f}% Jaccard)")
     print("(scaffold overlap >> molecule overlap means same chemotypes, new decorations)")
 
+    def dump(path, smis, header):
+        with open(path, "w", newline="") as fh:
+            w = csv.writer(fh); w.writerow([header])
+            for s in sorted(smis): w.writerow([s])
+        print(f"{len(smis)} molecules -> {path}")
+
     if args.output:
-        with open(args.output,"w",newline="") as fh:
-            w = csv.writer(fh); w.writerow(["shared_smiles"])
-            for s in sorted(shared): w.writerow([s])
-        print(f"\nshared molecules -> {args.output}")
+        dump(args.output, shared, "shared_smiles")
+    if args.only_a:
+        dump(args.only_a, only_a, "only_in_a")
+    if args.only_b:
+        dump(args.only_b, only_b, "only_in_b")
 
 if __name__ == "__main__":
     main()
