@@ -15,5 +15,4 @@ configs/compounds*.smi
 models/
 tb_TL/
 tb_sampling/
-tl.log
-sampling.log
+*.log
