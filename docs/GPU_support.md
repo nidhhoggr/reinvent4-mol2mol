@@ -20,7 +20,7 @@ One real gotcha with putting build args **only** in the override file: in CPU mo
 
 The thing to *not* do is split it: TORCH_INDEX default in the base `builder` and the GPU override in the gpu file. That works but now two files describe the same arg and you have to reason about precedence. Pick one home for it.
 
-``bash
+```bash
 # CPU — gpu file not loaded, Dockerfile ARG default (/cpu) wins
 docker compose up tl
 
@@ -54,9 +54,7 @@ Finally, set `device = "cuda:0"` in each config (`tl_mol2mol.toml`, `sample_mol2
 
 ---
 
-One unrelated flag while you're in there: `torch==2.12.0` is a very high pin — worth confirming it actually resolves on `cu126` before you commit to a long GPU build, since a nonexistent version will fail Layer 3 regardless of the index. If you want, I can check what the current stable torch is and which CUDA wheel indexes it ships for.
-
-Two honest caveats so the new machine doesn't disappoint you:
+## Caveats
 
 The GPU only accelerates the **generator** (the LibInvent RNN). Your **docking is CPU-bound** — DockStream/Vina don't use the GPU — and on this pipeline docking dominates wall-clock time. So a faster GPU speeds sampling and the policy update, but throughput will still be gated by how fast 128 ligands dock per step. A machine with more/faster CPU cores helps there too; bump `number_cores` in `dockstream_config.json` (and you can raise `batch_size` back up once the generator is on GPU).
 
