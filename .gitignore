@@ -11,7 +11,7 @@ results/
 tb_libinvent_*/
 configs/priors/*
 docking_setup/
-configs/compounds*.smi
+configs/*.smi
 configs/iterations
 models/
 tb_TL/
