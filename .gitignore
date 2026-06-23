@@ -12,6 +12,7 @@ tb_libinvent_*/
 configs/priors/*
 docking_setup/
 configs/compounds*.smi
+configs/iterations
 models/
 tb_TL/
 tb_sampling/

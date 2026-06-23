@@ -458,7 +458,7 @@ open(f"{base}_val.smi", "w").writelines(val)
 print(f"total={len(lines)} train={len(train)} val={len(val)}")
 ```
 
-Run: `python scripts/tl/04_split_smiles.py data/compounds.smi --val-frac 0.15`
+Run: `python scripts/tl/04_split_smiles.py configs/compounds.smi --val-frac 0.15`
 
 ### Example Output (Trying different seeds: none, 7, 15, 25)
 

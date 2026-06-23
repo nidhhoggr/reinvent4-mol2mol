@@ -4,8 +4,8 @@ tb_logdir = "tb_TL"
 
 [parameters]
 input_model_file = "/workspace/configs/priors/mol2mol_medium_similarity.prior"  # point at the prior in your image
-smiles_file = "/workspace/configs/compounds_augmented_train.smi"
-validation_smiles_file = "/workspace/configs/compounds_augmented_val.smi"
+smiles_file = "/workspace/configs/compounds_train.smi"
+validation_smiles_file = "/workspace/configs/compounds_val.smi"
 output_model_file = "/workspace/models/tl_mol2mol.model"
 
 num_epochs = 25            # small set overfits fast; watch the curve, take an early checkpoint
