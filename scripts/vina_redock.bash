@@ -35,6 +35,7 @@ CENTER="${CENTER:-1.56 2.56 18.4}"          # must match your dockstream_config.
 SIZE="${SIZE:-22 22 22}"
 EXH="${EXH:-8}"                             # must match your config's --exhaustiveness
 WORKERS="${WORKERS:-1}"                     # parallel ligands for --csv (each still --cpu 1)
+CPU="${CPU:-1}"
 VINA="${VINA:-/opt/conda/envs/reinvent4/bin/vina}"
 OBABEL="${OBABEL:-/opt/conda/envs/DockStream/bin/obabel}"
 PYTHON="${PYTHON:-/opt/conda/envs/DockStream/bin/python}"   # env that has RDKit + obabel
@@ -53,6 +54,7 @@ exec docker run --rm -v "${WORKDIR_HOST}:/workspace" "$IMAGE" \
   --center $CENTER \
   --size $SIZE \
   --exhaustiveness "$EXH" \
+  --cpu "$CPU" \
   --workers "$WORKERS" \
   --vina "$VINA" \
   --obabel "$OBABEL" \

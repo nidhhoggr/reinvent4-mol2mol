@@ -76,7 +76,7 @@ def to_pdbqt(mol: Chem.Mol, obabel: str, workdir: str) -> str:
 
 
 def dock(pdbqt: str, receptor: str, center, size, vina: str,
-         out_pdbqt: str, exhaustiveness: int) -> float:
+         out_pdbqt: str, exhaustiveness: int, cpu: int) -> float:
     """Run Vina deterministically and return the best (mode 1) affinity.
 
     --cpu is intentionally 1: this keeps the search single-threaded and therefore
@@ -91,7 +91,7 @@ def dock(pdbqt: str, receptor: str, center, size, vina: str,
         "--ligand", pdbqt,
         "--center_x", str(cx), "--center_y", str(cy), "--center_z", str(cz),
         "--size_x", str(sx), "--size_y", str(sy), "--size_z", str(sz),
-        "--cpu", "1",
+        "--cpu", str(cpu),
         "--seed", str(SEED),
         "--exhaustiveness", str(exhaustiveness),
         "--out", out_pdbqt,
@@ -111,7 +111,7 @@ def run_one(smiles: str, name: str, args, out_dir: str):
     mol = embed(smiles)
     pdbqt = to_pdbqt(mol, args.obabel, work)
     score = dock(pdbqt, args.receptor, args.center, args.size,
-                 args.vina, out_pdbqt, args.exhaustiveness)
+                 args.vina, out_pdbqt, args.exhaustiveness, args.cpu)
     return score, out_pdbqt
 
 
@@ -128,6 +128,8 @@ def main():
                    metavar=("X", "Y", "Z"), help="search box size (default 22 22 22)")
     p.add_argument("--exhaustiveness", type=int, default=8,
                    help="MATCH your dockstream_config.json value (Vina default 8)")
+    p.add_argument("--cpu", type=int, default=1,
+                   help="tell vina to use more cpus. don't use for parellel docking(default 1)")
     p.add_argument("--workers", type=int, default=1,
                    help="parallel dockings at once for --csv (each still uses --cpu 1). "
                         "Set to your core count, e.g. 10. No effect on single-SMILES mode.")
