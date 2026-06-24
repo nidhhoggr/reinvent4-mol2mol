@@ -29,7 +29,7 @@ services:
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-              "-l", "tl.log", "configs/tl_mol2mol.toml"]
+              "-l", "logs/tl.log", "configs/tl_mol2mol.toml"]
 
   sample:
     <<: *reinvent-base
@@ -37,7 +37,7 @@ services:
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-              "-l", "sampling.log", "configs/sample_mol2mol.toml"]
+              "-l", "logs/sampling.log", "configs/sample_mol2mol.toml"]
 
   dock:
     <<: *reinvent-base
@@ -52,7 +52,7 @@ services:
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-              "-l", "rl.log", "configs/staged_learning.toml"]
+              "-l", "logs/rl.log", "configs/staged_rl_mol2mol.toml"]
 
   tensorboard:   
     <<: *reinvent-base
@@ -61,7 +61,7 @@ services:
       - builder
     working_dir: /workspace
     command: ["/opt/conda/envs/reinvent4/bin/tensorboard",
-              "--logdir", "/workspace/tb_TL",
+              "--logdir", "${TB_LOGDIR:-/workspace/tb_TL}",
               "--host", "0.0.0.0", "--port", "6006"]
     volumes:
       - ${PWD}:/workspace:ro

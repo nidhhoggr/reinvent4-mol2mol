@@ -15,6 +15,8 @@ configs/*.smi
 configs/iterations
 models/
 tb_TL/
+tb_rl*/
 tb_sampling/
 *.log
 host.env
+.env

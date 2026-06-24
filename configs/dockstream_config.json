@@ -2,7 +2,7 @@
   "docking": {
     "header": {
       "logging": {
-        "logfile": "/workspace/results/dockstream.log"
+        "logfile": "/workspace/logs/dockstream.log"
       }
     },
     "ligand_preparation": {

@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  awk -F, 'NR>1{s+=$4;n++} END{if(n) printf "%-40s meanScore=%.3f  rows=%d\n", FILENAME, s/n, n}' "$f"
 #done
 
-dcol=$(head -1 ${SCRIPT_DIR}/../results/run_00000_1.csv | tr ',' '\n' | grep -n 'docking (raw)' | cut -d: -f1)
-for f in $(ls -v ${SCRIPT_DIR}/../results/run_*_1.csv); do
+dcol=$(head -1 ${SCRIPT_DIR}/../results/*_1.csv | tr ',' '\n' | grep -n 'docking (raw)' | cut -d: -f1)
+for f in $(ls -v ${SCRIPT_DIR}/../results/*_1.csv); do
   awk -F, -v d=$dcol 'NR>1{s+=$4; dk+=$d; n++} END{if(n) printf "%-26s meanScore=%.3f  meanDock=%.2f  n=%d\n", FILENAME, s/n, dk/n, n}' "$f"
 done
