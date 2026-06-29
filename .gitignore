@@ -14,8 +14,10 @@ docking_setup/
 configs/*.smi
 configs/*.template.toml
 configs/iterations
+rclone.conf
 models/
 tb_rl*/
 logs/*.log
 host.env
 .env
+tb_stats.csv

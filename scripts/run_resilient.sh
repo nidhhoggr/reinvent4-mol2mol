@@ -70,6 +70,9 @@ while [ "$done_steps" -lt "$TARGET_STEPS" ]; do
     echo "$done_steps" > "$PROGRESS"
     # Immutable snapshot of the rolling checkpoint (history; resume still uses $CHKPT).
     [ -f "$CHKPT" ] && cp -p "$CHKPT" "$CKPT_HIST/$(printf 'step_%05d.chkpt' "$done_steps")"
+    # refresh the stitched CSV + merged TB dir from all chunks so far
+    python /workspace/scripts/dump_tb.py /workspace/results /workspace/results --emit-tb \
+      || echo "dump_tb failed (non-fatal); continuing" >&2
   else
     rc=$?
     echo "Chunk exited non-zero ($rc) — likely interrupted. State is in $CHKPT;"
