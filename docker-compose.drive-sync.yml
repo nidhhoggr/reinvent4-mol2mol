@@ -1,0 +1,34 @@
+# Drop-in overlay that adds the Google Drive backup sidecar WITHOUT touching
+# docker-compose.yml. Compose merges this file in; the service sits under a
+# "backup" profile so it never auto-starts with a bare `docker compose up`.
+#
+# Start it (either form):
+#   docker compose -f docker-compose.yml -f docker-compose.drive-sync.yml up -d drive-sync
+#   # or, if you add this file to COMPOSE_FILE in .env (see note), just:
+#   docker compose up -d drive-sync
+#
+# Logs:  docker compose -f docker-compose.yml -f docker-compose.drive-sync.yml logs -f drive-sync
+services:
+  drive-sync:
+    image: rclone/rclone:1.66
+    container_name: reinvent4-drive-sync
+    profiles: ["backup"]                 # dormant unless targeted by name or `--profile backup`
+    user: "0:0"                          # results/ is root-owned by the reinvent containers
+    volumes:
+      - .:/workspace
+    environment:
+      RCLONE_CONFIG: /workspace/configs/rclone/rclone.conf
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-gdrive}
+      RCLONE_SRC: ${RCLONE_SRC:-/workspace/results}
+      RCLONE_DEST: ${RCLONE_DEST:-rclone}
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-300}
+      BWLIMIT: ${BWLIMIT:-off}
+      RCLONE_MODE: ${RCLONE_MODE:-copy}
+    entrypoint: ["/bin/sh", "/workspace/scripts/rclone_sync.sh"]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"

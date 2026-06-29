@@ -11,7 +11,7 @@ purge_memories = false                      # CRITICAL: default is true, which p
 prior_file = "/workspace/configs/priors/mol2mol_medium_similarity.prior"   # ANCHOR — original prior, the leash (CONSTANT, never the checkpoint)
 agent_file = "/workspace/models/1/tl_mol2mol.model"   # make_template -> __AGENT__ (chunk 0 = this TL model; every resume = the live checkpoint)
 smiles_file = "/workspace/configs/references.smi"                  # SEEDS — your 16 references
-batch_size = 12
+batch_size = 36
 randomize_smiles = false                                # mol2mol prior wasn't trained randomized
 
 [learning_strategy]
