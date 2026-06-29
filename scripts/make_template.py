@@ -1,20 +1,20 @@
 #!/usr/bin/env python
-"""Regenerate libinvent_rl.template.toml from the validated libinvent_rl.toml.
+"""Regenerate mol2mol_rl.template.toml from the validated mol2mol_rl.toml.
 
 Run this every time you change the scoring function (or anything else) in
-libinvent_rl.toml, BEFORE launching run_resilient.sh, so the wrapper runs your
+mol2mol_rl.toml, BEFORE launching run_resilient.sh, so the wrapper runs your
 real config. It only swaps the few fields the wrapper controls and leaves your
 scoring components untouched. Commented (#) lines are never modified.
 
-  python make_template.py /workspace/configs/libinvent_rl.toml \
-                          /workspace/configs/libinvent_rl.template.toml
+  python make_template.py /workspace/configs/mol2mol_rl.toml \
+                          /workspace/configs/mol2mol_rl.template.toml
 """
 import re, sys
 
 src, dst = sys.argv[1], sys.argv[2]
-ROLLING_CHKPT = "/workspace/results/libinvent.chkpt"
+ROLLING_CHKPT = "/workspace/results/mol2mol.chkpt"   # MUST match $CHKPT in run_resilient.sh
 
-done = {k: False for k in ("agent", "csv", "chkpt", "maxsteps", "maxscore", "minsteps")}
+done = {k: False for k in ("agent", "csv", "chkpt", "maxsteps", "maxscore", "minsteps", "tb")}
 out = []
 
 for ln in open(src).read().splitlines():
@@ -25,6 +25,10 @@ for ln in open(src).read().splitlines():
         out.append(f'{indent}agent_file = "__AGENT__"')
         out.append(f'{indent}use_checkpoint = __USE__')
         done["agent"] = True; continue
+    if not done["tb"] and re.match(r"\s*tb_logdir\s*=", ln):
+        # per-chunk TB dir (reuses the CSVPREFIX placeholder) so steps don't
+        # sawtooth into one folder; dump_tb.py reads each dir cleanly.
+        out.append(re.sub(r"=.*", '= "__CSVPREFIX___tb"', ln, count=1)); done["tb"] = True; continue
     if not done["csv"] and re.match(r"\s*summary_csv_prefix\s*=", ln):
         out.append(re.sub(r"=.*", '= "__CSVPREFIX__"', ln, count=1)); done["csv"] = True; continue
     if not done["chkpt"] and re.match(r"\s*chkpt_file\s*=", ln):

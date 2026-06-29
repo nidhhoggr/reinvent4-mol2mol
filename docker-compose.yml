@@ -39,20 +39,38 @@ services:
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
               "-l", "logs/sampling.log", "configs/sample_mol2mol.toml"]
 
-  dock:
-    <<: *reinvent-base
-    container_name: reinvent4-dock
-    depends_on:
-      - builder
-    command: ["bash", "/workspace/scripts/dock.sh"]
-
   rl:
     <<: *reinvent-base
-    container_name: reinvent4-dock
+    container_name: reinvent4-rl
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
               "-l", "logs/rl.log", "configs/staged_rl_mol2mol.toml"]
+
+  make-template:
+    <<: *reinvent-base
+    container_name: reinvent4-rl
+    depends_on:
+      - builder
+    environment:
+      CONFIG_SCRIPT_NAME: ${CONFIG_SCRIPT_NAME:-mol2mol_rl}
+    entrypoint: ["bash", "/workspace/scripts/make_template.bash"]
+    restart: "no"
+
+  resilient-rl:
+    <<: *reinvent-base
+    container_name: reinvent4-resilient-rl
+    depends_on:
+      builder:
+        condition: service_started
+      make-template:
+        condition: service_completed_successfully
+    command: ["bash", "/workspace/scripts/run_resilient.sh"]
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"            # must re-declare; this block overrides the anchor's environment
+      TARGET_STEPS: ${TARGET_STEPS:-500}
+      CHUNK_STEPS: ${CHUNK_STEPS:-10}
 
   tensorboard:   
     <<: *reinvent-base

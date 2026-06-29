@@ -23,17 +23,18 @@ conda activate reinvent4
 
 RESULTS="/workspace/results"
 CFGDIR="/workspace/configs"
-PRIOR="$CFGDIR/priors/libinvent.prior"
-CHKPT="$RESULTS/libinvent.chkpt"
-TEMPLATE="$CFGDIR/libinvent_rl.template.toml"
-RUNCFG="$RESULTS/libinvent_rl.run.toml"
+TLMODEL="/workspace/models/1/tl_mol2mol.model"   # chunk-0 agent (the TL model — NOT the prior)
+CHKPT="$RESULTS/mol2mol.chkpt"                    # live resume pointer; MUST equal ROLLING_CHKPT in make_template.py
+CKPT_HIST="$RESULTS/checkpoints"                  # versioned, non-overwriting snapshots
+TEMPLATE="$CFGDIR/mol2mol_rl.template.toml"
+RUNCFG="$RESULTS/mol2mol_rl.run.toml"
 PROGRESS="$RESULTS/.steps_done"
 DONE="$RESULTS/.complete"
 
 TARGET_STEPS="${TARGET_STEPS:-500}"   # total RL steps you ultimately want
 CHUNK_STEPS="${CHUNK_STEPS:-10}"      # steps per checkpointed chunk
 
-mkdir -p "$RESULTS"
+mkdir -p "$RESULTS" "$CKPT_HIST"
 
 if [ -f "$DONE" ]; then
   echo "Run already marked complete ($DONE exists). Idling so the restart"
@@ -50,7 +51,7 @@ while [ "$done_steps" -lt "$TARGET_STEPS" ]; do
   if [ -f "$CHKPT" ]; then
     AGENT="$CHKPT"; USE="true"
   else
-    AGENT="$PRIOR"; USE="false"
+    AGENT="$TLMODEL"; USE="false"
   fi
 
   # Per-chunk CSV so REINVENT's truncating open ("w+") never clobbers history.
@@ -67,6 +68,8 @@ while [ "$done_steps" -lt "$TARGET_STEPS" ]; do
   if python -m reinvent "$RUNCFG"; then
     done_steps=$((done_steps + CHUNK_STEPS))
     echo "$done_steps" > "$PROGRESS"
+    # Immutable snapshot of the rolling checkpoint (history; resume still uses $CHKPT).
+    [ -f "$CHKPT" ] && cp -p "$CHKPT" "$CKPT_HIST/$(printf 'step_%05d.chkpt' "$done_steps")"
   else
     rc=$?
     echo "Chunk exited non-zero ($rc) — likely interrupted. State is in $CHKPT;"
@@ -77,6 +80,7 @@ done
 
 touch "$DONE"
 echo "Completed $TARGET_STEPS steps. Checkpoint: $CHKPT"
+echo "Snapshots: $CKPT_HIST/step_*.chkpt"
 echo "Per-chunk CSVs: $RESULTS/run_*_1.csv  (concatenate for full history)"
 echo "Idling so the restart policy won't loop; run 'docker compose down' to stop."
 exec sleep infinity
