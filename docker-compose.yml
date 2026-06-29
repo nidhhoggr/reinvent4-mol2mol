@@ -49,7 +49,7 @@ services:
 
   make-template:
     <<: *reinvent-base
-    container_name: reinvent4-rl
+    container_name: reinvent4-rl-template-maker
     depends_on:
       - builder
     environment:
