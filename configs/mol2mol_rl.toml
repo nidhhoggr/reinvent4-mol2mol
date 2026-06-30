@@ -1,42 +1,35 @@
 run_type = "staged_learning"
 device = "cpu"
-#device = "cuda:0"                          # RL with docking is GPU territory
-tb_logdir = "tb_rl"                        # static unless you add the tb rule to make_template.py (per-chunk dirs avoid sawtooth — see below)
+#device = "cuda:0"                          # switch to GPU if available (Vina docking stays CPU-bound either way)
+tb_logdir = "results/tb_rl"                 # under results/ so dump_tb finds it and the backup syncs it
 
 [parameters]
-summary_csv_prefix = "/workspace/results/rl"   # make_template -> __CSVPREFIX__ (per-chunk, so REINVENT's "w+" never clobbers history)
-# NOTE: do NOT add a use_checkpoint line here. make_template.py INJECTS
-# `use_checkpoint = __USE__` right after agent_file; a second one = TOML duplicate-key error.
-purge_memories = false                      # CRITICAL: default is true, which purges the Murcko buckets BEFORE the checkpoint save = resets anti-collapse every chunk. make_template leaves this untouched, so it MUST live here. Off = buckets persist across chunks.
-prior_file = "/workspace/configs/priors/mol2mol_medium_similarity.prior"   # ANCHOR — original prior, the leash (CONSTANT, never the checkpoint)
-agent_file = "/workspace/models/1/tl_mol2mol.model"   # make_template -> __AGENT__ (chunk 0 = this TL model; every resume = the live checkpoint)
-smiles_file = "/workspace/configs/references.smi"                  # SEEDS — your 16 references
-batch_size = 36
-randomize_smiles = false                                # mol2mol prior wasn't trained randomized
+summary_csv_prefix = "/workspace/results/rl"
+prior_file = "/workspace/configs/priors/mol2mol_medium_similarity.prior"   # ANCHOR — the prior, the leash
+agent_file = "/workspace/models/1/tl_mol2mol.model"                        # the diverse TL model to optimize
+smiles_file = "/workspace/configs/references.smi"                          # SEEDS — your references
+batch_size = 18
+randomize_smiles = false                    # mol2mol prior wasn't trained randomized
 
 [learning_strategy]
-type = "dap"                               # DAP is the recommended strategy
+type = "dap"
 sigma = 128
 rate = 0.0001
 
-# On every resume the DF is loaded FROM the checkpoint, so this block is ignored
-# while use_checkpoint = true (the checkpoint branch wins). Set bucket_size /
-# minscore the way you want them BEFORE chunk 0 — you can't change them mid-run
-# without starting fresh. Scoring components below DO hot-reload each chunk.
-[diversity_filter]                         # THE anti-collapse mechanism — non-negotiable for you
+[diversity_filter]                          # anti-collapse: cap molecules per Murcko scaffold
 type = "IdenticalMurckoScaffold"
-bucket_size = 25                           # cap molecules per scaffold before score is penalized
+bucket_size = 25
 minscore = 0.4
 
 [[stage]]
-chkpt_file = "/workspace/results/mol2mol.chkpt"   # make_template FORCES this to its ROLLING_CHKPT constant — keep the line, but the value here is cosmetic. Must match $CHKPT in run_resilient.sh.
-termination = "simple"                      # CHUNKED PATH: make_template forces max_score->1.0, so "simple" never fires and each chunk runs its full __MAXSTEPS__. (Switch to "plateau" only for a single non-chunked run.)
-min_steps = 50                             # make_template FORCES this to 0 for the template; value here only matters for a standalone non-chunked run
-max_steps = 100                            # make_template -> __MAXSTEPS__ (= CHUNK_STEPS per chunk); standalone runs use this value
-max_score = 0.65                           # make_template FORCES this to 1.0 for the template; value here only matters standalone
+chkpt_file = "/workspace/results/mol2mol.chkpt"   # end-of-run checkpoint (also written on SIGUSR1)
+termination = "plateau"                      # stops when the score curve flattens (low slope over its memory window) after min_steps
+min_steps = 50
+max_steps = 100                             # hard cap / total RL steps (raise for a longer campaign)
+# max_score is unused by plateau — drop it or leave it; it has no effect here
 
 [stage.scoring]
-type = "geometric_mean"                    # all components must be decent — no gaming one. Every component is now a near-gate; a single ~0 tanks the product (intended for AromRings 4+/MW). Keep transforms smooth so the agent still gets a gradient out of bad regions.
+type = "geometric_mean"                    # all components must be decent — no gaming one. Every component is a near-gate; a single ~0 tanks the product (intended for AromRings 4+/MW). Keep transforms smooth so the agent still gets a gradient out of bad regions.
 
 # ---- Docking via DockStream (the objective) ----------------------------------
 [[stage.scoring.component]]
@@ -104,7 +97,6 @@ transform.low  = 3.0
 transform.high = 5.0
 transform.k    = 0.5
 
-
 # ---- Halogens: keep the preference alive --------------------------------------
 [[stage.scoring.component]]
 [stage.scoring.component.GroupCount]
@@ -116,7 +108,6 @@ transform.type = "sigmoid"
 transform.low  = 0.0
 transform.high = 2.0
 transform.k    = 0.5
-
 
 # ---- OPTIONAL: Fsp3 floor — gentle 3D nudge, overlaps with AromRings -------
 # NOT covered by QED (QED has no sp3 term). Redundant with AromRings, not QED.

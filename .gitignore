@@ -7,7 +7,7 @@ dist/
 *.egg-info/
 __pycache__/
 
-results/
+results/*
 tb_libinvent_*/
 configs/priors/*
 docking_setup/

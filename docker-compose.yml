@@ -29,7 +29,7 @@ services:
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-              "-l", "logs/tl.log", "configs/tl_mol2mol.toml"]
+              "-l", "logs/tl.log", "configs/mol2mol_tl.toml"]
 
   sample:
     <<: *reinvent-base
@@ -37,7 +37,7 @@ services:
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-              "-l", "logs/sampling.log", "configs/sample_mol2mol.toml"]
+              "-l", "logs/sampling.log", "configs/mol2mol_sample.toml"]
 
   rl:
     <<: *reinvent-base
@@ -45,32 +45,7 @@ services:
     depends_on:
       - builder
     command: ["/opt/conda/envs/reinvent4/bin/reinvent",
-              "-l", "logs/rl.log", "configs/staged_rl_mol2mol.toml"]
-
-  make-template:
-    <<: *reinvent-base
-    container_name: reinvent4-rl-template-maker
-    depends_on:
-      - builder
-    environment:
-      CONFIG_SCRIPT_NAME: ${CONFIG_SCRIPT_NAME:-mol2mol_rl}
-    entrypoint: ["bash", "/workspace/scripts/make_template.bash"]
-    restart: "no"
-
-  resilient-rl:
-    <<: *reinvent-base
-    container_name: reinvent4-resilient-rl
-    depends_on:
-      builder:
-        condition: service_started
-      make-template:
-        condition: service_completed_successfully
-    command: ["bash", "/workspace/scripts/run_resilient.sh"]
-    restart: unless-stopped
-    environment:
-      PYTHONUNBUFFERED: "1"            # must re-declare; this block overrides the anchor's environment
-      TARGET_STEPS: ${TARGET_STEPS:-500}
-      CHUNK_STEPS: ${CHUNK_STEPS:-10}
+              "-l", "logs/rl.log", "configs/mol2mol_rl.toml"]
 
   tensorboard:   
     <<: *reinvent-base
@@ -86,3 +61,16 @@ services:
     ports:
       - "6006:6006"
     restart: unless-stopped
+
+  tb-dump:
+    <<: *reinvent-base
+    container_name: reinvent4-tb-dump
+    profiles: ["backup"]
+    depends_on:
+      - builder
+    command: ["bash", "/workspace/scripts/dump_tb_loop.sh"]
+    environment:
+      PYTHONUNBUFFERED: "1"        # re-declared: this block overrides the anchor's
+      DUMP_INTERVAL: ${DUMP_INTERVAL:-120}
+    restart: unless-stopped
+    stop_grace_period: 30s
