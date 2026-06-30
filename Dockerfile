@@ -58,3 +58,7 @@ WORKDIR /workspace
 ENV PYTHONUNBUFFERED=1
 RUN echo "source activate reinvent4" > ~/.bashrc
 CMD ["/bin/bash"]
+
+# Layer 9: Patch BucketCounter so the diversity filter survives checkpoint resume.
+COPY scripts/patch_bucketcounter.py /tmp/patch_bucketcounter.py
+RUN python /tmp/patch_bucketcounter.py
