@@ -1,7 +1,7 @@
 
 # REINVENT4 mol2mol
 
-A set of scripts providing everything you need to perform Transfer and Reinforcement learning using a seed compound candidiate pool, utilizing docker containers for isolation and reproducability.
+A set of scripts providing everything you need to perform Transfer and Reinforcement learning using a seed compound candidate pool, utilizing docker containers for isolation and reproducibility.
 
 <img width="2816" height="1536" alt="reinvent4_mol2mol" src="https://github.com/user-attachments/assets/379c499e-a8c7-4f45-907c-e43955c6ba39" />
 
