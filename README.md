@@ -65,7 +65,6 @@ If what you want is _analogs of each of these 17 compounds_, you may not need TL
 
 If what you want is _an agent biased toward this chemical space as a series_, you need congeneric data the set doesn't currently have. That means augmenting (Step 3): for each compound (or each small cluster), pull in known analogs — from a SAR series, a similarity search against ChEMBL/your in-house DB, or R-group enumeration — until clusters form and pairs appear at a respectable threshold (aim for a few hundred pairs at ≥0.5–0.6 with most molecules covered). Then re-run `check_pairs.py` and you'll see the table fill in.
 
-
 ## Step 3 — ChEMBL Augmentation (`scripts/tl/03_augment_from_chembl.py`)
 
 When you need congeneric data that your compound pool doesn't have you need to augment your data using a similarity search. This script used ChEMBL to find similar compounds to de-diversify your data set.
@@ -74,9 +73,15 @@ When you need congeneric data that your compound pool doesn't have you need to a
 
 **The two knobs that matter.** `--similarity` is your relevance/volume tradeoff: 70 pulls tight analogs; drop to 60 if check_pairs still looks thin and you need bigger, more overlapping clusters (at the cost of looser neighbors). `--max-per-seed` caps cluster size so one popular scaffold doesn't swamp the set — it's the data-prep mirror of `pairs.max_cardinality`. At 17 seeds × 25 that's up to ~425 analogs before dedup, comfortably into the pair count you want.
 
-**A few honest caveats.** if `molecules` or `molecule_structures.canonical_smiles` ever come back shaped differently, that's the spot to check. Second, ChEMBL hits are _structural_ neighbors, not compounds known to be active against your pocket — which is exactly right for mol2mol TL (you're teaching edit style, not activity), but don't mistake the analogs for validated actives. Third, some seeds may return zero analogs if they're novel or proprietary chemotypes ChEMBL doesn't cover; the script lists those at the end, and they'll stay orphans until you add in-house analogs or R-group enumeration for them.
+**Why you might also want a size/lipophilicity filter.** ChEMBL's similarity search is purely structural (Tanimoto on fingerprints) — it has no idea what your seeds' molecular weight or clogP look like, and structural neighbors are not guaranteed to be property neighbors. In practice this means augmentation can quietly shift your training set toward bigger, greasier compounds than your original series, even at a tight similarity cutoff: ChEMBL's overall content skews toward more optimized (and often heavier/more decorated) analogs of a given scaffold, since that's what medicinal chemistry SAR tables tend to contain. If your 17 seeds average, say, 290 Da, don't assume their ChEMBL neighbors do too — check before you train on them.
 
-Once check_pairs shows a few hundred pairs at ≥0.5–0.6 with most molecules covered, set `pairs.lower_threshold` to that value in your TOML, point `smiles_file`/`validation_smiles_file` at the augmented split, and you're ready to actually run TL.
+Two independent filters are available, and you can combine them:
+
+- **`--max-mw` / `--max-clogp`** — an absolute ceiling. Any analog above this value is rejected outright, regardless of which seed it came from. Use this if you have a hard downstream constraint in mind (e.g. an RL-stage `MolecularWeight` scoring component with its own ceiling) and want the training data to already live comfortably under it, rather than asking the model to unlearn a habit RL then has to fight.
+- **`--mw-tolerance` / `--clogp-tolerance`** — a per-seed matching window. Each analog is compared only against *its own* seed's MW/clogP, not a global constant, and rejected if it drifts more than the tolerance in either direction (e.g. `--mw-tolerance 40` keeps every analog within ±40 Da of the specific seed it was pulled for). This is the better choice if your 17 seeds vary a lot in size themselves — a global ceiling would either be too loose for your smallest seeds or too strict for your largest ones, while a per-seed window scales with each seed automatically.
+
+Both flags print a rejection count at the end (`filtered on MW: N hits rejected`, etc.) so you can see how much of ChEMBL's raw similarity search got trimmed by the property filter versus the existing heavy-atom window.
+
 ### How to run it:
 
 ```bash
@@ -85,95 +90,41 @@ python scripts/tl/03_augment_from_chembl.py configs/compounds.smi -o configs/com
 python scripts/tl/02_check_pairs.py configs/compounds_augmented.smi   # confirm the table fills in
 ```
 
-### Example Output (Unbalanced)
+To also enforce a hard ceiling matching a known downstream RL constraint (e.g. an RL MolecularWeight component with `transform.high = 440`):
 
 ```bash
-python scripts/tl/03_augment_from_chembl.py configs/compounds.smi -o configs/compounds_augmented.smi --similarity 60 --max-per-seed 25 
-seed1: +1 analogs 
-seed2: +2 analogs 
-seed3: +4 analogs 
-seed4: +0 analogs 
-seed5: +13 analogs 
-seed6: +7 analogs 
-seed7: +4 analogs 
-seed8: +1 analogs 
-seed9: +2 analogs 
-seed10: +20 analogs 
-seed11: +2 analogs 
-seed12: +5 analogs 
-seed13: +22 analogs 
-seed14: +6 analogs 
-seed15: +3 analogs 
-seed16: +5 analogs 
-seed17: +2 analogs 
-seeds=17 analogs_added=99 total_unique=116 -> configs/compounds_augmented.smi seeds with 0 analogs (1): seed4 N
-ow re-run check_pairs.py on the output to see the threshold table fill 
-
-scripts/tl/02_check_pairs.py configs/compounds_augmented.smi 
-116 valid molecules -> 13340 ordered pairs possible (excl. self) threshold | pairs >= thr | sources w/>=1 target 
------------------------------------------------- 
-0.3 | 1568 | 115 
-0.4 | 1348 | 115 
-0.5 | 1058 | 115 
-0.6 | 832  | 115 
-0.7 | 374  | 78 
-0.8 | 124  | 28
+python scripts/tl/03_augment_from_chembl.py configs/compounds.smi -o configs/compounds_augmented.smi \
+    --similarity 70 --max-per-seed 25 --max-mw 440 --max-clogp 5.5
 ```
 
-Compared to the 0.70 run it roughly tripled everything: 116 molecules, and at 0.6 it went from 286 pairs / 47 covered to **832 pairs / 115 covered**. Only one true orphan left (seed4), and full coverage holds all the way down to 0.5. 
-
-- **0.5** → 1058 pairs, all 116 covered, but looser edits (you're training on pairs only ~50% similar).
-- **0.6** → 832 pairs, ~full coverage, moderate edit size. 
-- **0.7** → 374 pairs, tightest/most conservative edits, but ~38 molecules form no pairs and drop out (78 covered). Use only if you want strictly close-in analogs and don't mind the smaller effective set.
-
-So I'd set `lower_threshold = 0.6` on this set and move on. 
-
-**The cluster imbalance is now more pronounced** — seed13 (+22), seed10 (+20), and seed5 (+13) account for 55 of your 99 analogs. Those three chemotypes will dominate the learned bias. For a first run that's acceptable, and it may just reflect that those scaffolds are well-studied in ChEMBL. If you want a more even bias across your 17, re-run with `--max-per-seed 10` or `12` — that trims the big three without much affecting the thin clusters, and you'll still clear several hundred pairs. Worth a quick comparison, but not mandatory.
-
-seed4 is a genuine orphan — zero analogs at both 60 and 70, so ChEMBL simply has nothing near it. That's a novel or proprietary scaffold; it'll sit out of TL unless you generate analogs for it in-house. Nothing the augmentation script can do about that one.
-
-### Example Output (Well Balanced after rerunning with --max-per-seed 10)
+Or, to keep each analog close to its own seed's size/lipophilicity rather than a fixed global number:
 
 ```bash
-python scripts/tl/03_augment_from_chembl.py configs/compounds.smi -o configs/compounds_augmented.smi --similarity 60 --max-per-seed 10 
-seed1: +1 analogs 
-seed2: +2 analogs 
-seed3: +4 analogs 
-seed4: +0 analogs 
-seed5: +9 analogs 
-seed6: +7 analogs 
-seed7: +4 analogs 
-seed8: +1 analogs 
-seed9: +2 analogs 
-seed10: +8 analogs 
-seed11: +2 analogs 
-seed12: +5 analogs 
-seed13: +8 analogs 
-seed14: +6 analogs 
-seed15: +3 analogs 
-seed16: +5 analogs 
-seed17: +2 analogs 
-seeds=17 analogs_added=69 total_unique=86 -> configs/compounds_augmented.smi seeds with 0 analogs (1): seed4 Now re-run check_pairs.py on the output to see the threshold table fill in. 
-
-python scripts/tl/02_check_pairs.py configs/compounds_augmented.smi 
-86 valid molecules -> 7310 ordered pairs possible (excl. self) 
-threshold | pairs >= thr | sources w/>=1 target 
------------------------------------------------- 
-0.3 | 694 | 85 
-0.4 | 488 | 85 
-0.5 | 376 | 85 
-0.6 | 290 | 85 
-0.7 | 164 | 52 
-0.8 | 66 | 13
+python scripts/tl/03_augment_from_chembl.py configs/compounds.smi -o configs/compounds_augmented.smi \
+    --similarity 70 --max-per-seed 25 --mw-tolerance 40 --clogp-tolerance 1.0
 ```
 
-The balancing worked exactly as intended — the analog counts now spread evenly from 1 to 9 instead of three runaway clusters of 13–22. No chemotype dominates anymore, coverage is still 85 of 86 (only seed4, your permanent orphan), and you've got 290–376 pairs across the 0.5–0.6 band. This is a clean, well-balanced training set.
+The two modes can be combined — e.g. a per-seed matching window *and* a hard absolute ceiling as a backstop, in case one seed is already unusually large and a ±40 Da window around it would still exceed your RL constraint.
 
-Here's the call between your two good options, because you've now got both on disk:
+### Example Output (with property filtering)
 
-This balanced set (86 mol, cap 10) trades raw pair count for even representation. The 116-molecule set had more pairs (832 at 0.6) but half of them came from three chemotypes. Since the whole point is to bias toward your _series of 17_ — not toward whichever three scaffolds happen to be well-studied in ChEMBL — balance is worth more than volume here. 290–376 pairs with full coverage is plenty for a focused TL run, especially as a warm start. 
+```bash
+python scripts/tl/03_augment_from_chembl.py configs/compounds.smi -o configs/compounds_augmented.smi \
+    --similarity 60 --max-per-seed 25 --mw-tolerance 40 --clogp-tolerance 1.0
+seed1: +1 analogs
+seed2: +2 analogs
+seed3: +3 analogs
+...
+seeds=17 analogs_added=71 total_unique=88 -> configs/compounds_augmented.smi
+  filtered on MW: 19 hits rejected
+  filtered on clogP: 9 hits rejected
+seeds with 0 analogs (1): seed4
+Now re-run check_pairs.py on the output to see the threshold table fill in.
+```
 
-For the threshold, use `lower_threshold = 0.5` on this set: 376 pairs, all 85 covered, and since this set is a bit leaner on pairs you want to keep the count up. Use 0.6 (290 pairs, still full coverage) if you specifically want tighter edits. Skip 0.7 here — it drops you to 52 covered, undoing the balancing.
+Compare the `analogs_added` count and the rejection lines against an unfiltered run on the same seeds/similarity/max-per-seed — a large gap (e.g. 99 analogs unfiltered vs. 71 with property filtering) tells you how much of ChEMBL's raw similarity search was structurally close but property-divergent. That gap is worth checking before you decide the filter was worth it: cutting too aggressively can starve `check_pairs.py`'s pair count back down into the "too diverse for TL" territory described in Step 2, so re-run `check_pairs.py` on the filtered output and confirm you still clear a healthy pair count before moving on to TL.
+
+**A caveat worth carrying forward.** These filters only constrain what augmentation *adds* — they say nothing about what the base mol2mol prior (`mol2mol_medium_similarity.prior`, etc.) already knows from its own pretraining, which happened long before your seeds or this script were involved. Property-filtering your augmentation set keeps your *fine-tuning* data honest, but it isn't a guarantee that TL will fully override whatever size/lipophilicity tendencies the prior brought in from its original training corpus. If you still see property drift in sampled/generated output after tightening this filter, that's a sign to look at the prior itself or the RL scoring config next, not just this augmentation step.
 
 ## Step 4 — Split (`scripts/tl/04_split_smiles.py`)
 

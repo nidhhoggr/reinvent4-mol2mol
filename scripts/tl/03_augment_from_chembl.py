@@ -6,9 +6,28 @@ For each seed SMILES it queries ChEMBL's similarity endpoint, standardizes the
 hits, caps how many it keeps per seed, dedupes against everything, and writes a
 new .smi with the originals first followed by the analogs.
 
+Analogs can also be filtered by molecular weight and/or clogP, in two modes
+that can be combined:
+  - Absolute ceiling (--max-mw / --max-clogp): reject any analog above a fixed
+    value, regardless of what seed it came from.
+  - Per-seed matching window (--mw-tolerance / --clogp-tolerance): reject any
+    analog whose MW/clogP falls outside [seed_value - tol, seed_value + tol]
+    for the specific seed it was pulled for. This keeps each seed's analog
+    cluster close to that seed's own size/lipophilicity, rather than letting
+    ChEMBL's similarity search (which is purely structural, not
+    property-aware) pull in bigger/greasier neighbors unchecked.
+
 Usage:
     python augment_from_chembl.py compounds.smi -o augmented_compounds.smi \
         --similarity 70 --max-per-seed 25
+
+    # cap every analog at a fixed ceiling, regardless of seed:
+    python augment_from_chembl.py compounds.smi -o augmented_compounds.smi \
+        --similarity 70 --max-per-seed 25 --max-mw 440 --max-clogp 5.5
+
+    # keep each analog within +/-40 Da and +/-1.0 clogP of its own seed:
+    python augment_from_chembl.py compounds.smi -o augmented_compounds.smi \
+        --similarity 70 --max-per-seed 25 --mw-tolerance 40 --clogp-tolerance 1.0
 
 ChEMBL endpoint:
     GET https://www.ebi.ac.uk/chembl/api/data/similarity/{smiles}/{int_similarity}?format=json
@@ -21,6 +40,7 @@ from urllib.parse import quote
 
 import requests
 from rdkit import Chem, RDLogger
+from rdkit.Chem import Descriptors, Crippen
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
 RDLogger.DisableLog("rdApp.*")
@@ -50,6 +70,14 @@ def standardize(smi, keep_stereo=True):
 def heavy_atoms(smi):
     m = Chem.MolFromSmiles(smi)
     return m.GetNumHeavyAtoms() if m else 0
+
+
+def mol_props(smi):
+    """Return (mw, clogp) for a SMILES, or (None, None) if it doesn't parse."""
+    m = Chem.MolFromSmiles(smi)
+    if m is None:
+        return None, None
+    return Descriptors.MolWt(m), Crippen.MolLogP(m)
 
 
 # ---------- ChEMBL fetch (the only networked part) ----------
@@ -118,11 +146,17 @@ def run(args, fetcher=chembl_similarity):
     n_seed = len(out)
     per_seed_counts = {}
     empty_seeds = []
+    n_filtered_heavy = 0
+    n_filtered_mw = 0
+    n_filtered_clogp = 0
 
     for smi, name in seeds:
         std_seed = standardize(smi, keep_stereo=not args.no_stereo)
         if std_seed is None:
             continue
+
+        seed_mw, seed_clogp = mol_props(std_seed)
+
         added = 0
         try:
             for cid, sim, hit_smi in fetcher(
@@ -131,9 +165,32 @@ def run(args, fetcher=chembl_similarity):
                 std = standardize(hit_smi, keep_stereo=not args.no_stereo)
                 if std is None:
                     continue
+
                 ha = heavy_atoms(std)
                 if ha < args.min_heavy or ha > args.max_heavy:
+                    n_filtered_heavy += 1
                     continue
+
+                hit_mw, hit_clogp = mol_props(std)
+
+                # absolute ceilings, independent of which seed this came from
+                if args.max_mw is not None and hit_mw is not None and hit_mw > args.max_mw:
+                    n_filtered_mw += 1
+                    continue
+                if args.max_clogp is not None and hit_clogp is not None and hit_clogp > args.max_clogp:
+                    n_filtered_clogp += 1
+                    continue
+
+                # per-seed matching window, relative to THIS seed's own properties
+                if args.mw_tolerance is not None and seed_mw is not None and hit_mw is not None:
+                    if abs(hit_mw - seed_mw) > args.mw_tolerance:
+                        n_filtered_mw += 1
+                        continue
+                if args.clogp_tolerance is not None and seed_clogp is not None and hit_clogp is not None:
+                    if abs(hit_clogp - seed_clogp) > args.clogp_tolerance:
+                        n_filtered_clogp += 1
+                        continue
+
                 if std in out:          # already have it (seed or prior hit)
                     continue
                 out[std] = f"{cid}|from:{name}|sim:{sim/100:.2f}"
@@ -154,6 +211,12 @@ def run(args, fetcher=chembl_similarity):
         f"\nseeds={n_seed} analogs_added={n_total - n_seed} total_unique={n_total} "
         f"-> {args.output}"
     )
+    if args.max_mw is not None or args.mw_tolerance is not None:
+        print(f"  filtered on MW: {n_filtered_mw} hits rejected", file=sys.stderr)
+    if args.max_clogp is not None or args.clogp_tolerance is not None:
+        print(f"  filtered on clogP: {n_filtered_clogp} hits rejected", file=sys.stderr)
+    if n_filtered_heavy:
+        print(f"  filtered on heavy-atom window: {n_filtered_heavy} hits rejected", file=sys.stderr)
     if empty_seeds:
         print(f"seeds with 0 analogs ({len(empty_seeds)}): {', '.join(empty_seeds)}",
               file=sys.stderr)
@@ -171,12 +234,28 @@ def parse_args(argv=None):
                     help="cap analogs kept per seed (default 25)")
     ap.add_argument("--min-heavy", type=int, default=5)
     ap.add_argument("--max-heavy", type=int, default=70)
+    ap.add_argument("--max-mw", type=float, default=None,
+                    help="reject any analog with MW above this absolute value (Da)")
+    ap.add_argument("--max-clogp", type=float, default=None,
+                    help="reject any analog with clogP above this absolute value")
+    ap.add_argument("--mw-tolerance", type=float, default=None,
+                    help="reject any analog whose MW differs from ITS OWN seed's MW "
+                         "by more than this many Da (per-seed matching window, "
+                         "combinable with --max-mw)")
+    ap.add_argument("--clogp-tolerance", type=float, default=None,
+                    help="reject any analog whose clogP differs from ITS OWN seed's "
+                         "clogP by more than this (per-seed matching window, "
+                         "combinable with --max-clogp)")
     ap.add_argument("--sleep", type=float, default=0.3,
                     help="seconds between paged requests (be polite)")
     ap.add_argument("--no-stereo", action="store_true")
     args = ap.parse_args(argv)
     if not (40 <= args.similarity <= 100):
         ap.error("--similarity must be between 40 and 100")
+    if args.mw_tolerance is not None and args.mw_tolerance <= 0:
+        ap.error("--mw-tolerance must be positive")
+    if args.clogp_tolerance is not None and args.clogp_tolerance <= 0:
+        ap.error("--clogp-tolerance must be positive")
     return args
 
 
